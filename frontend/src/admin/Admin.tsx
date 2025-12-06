@@ -4,47 +4,66 @@ import { Container, Typography, TextField, Button } from '@mui/material'
 export default function Admin() {
   const [password, setPassword] = useState('')
   const [adminJson, setAdminJson] = useState('')
-  const [token, setToken] = useState<string | null>(localStorage.getItem('admin-token'))
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
 
-  function login() {
-    // simple password -> token exchange (client-side demo)
-    if (password === 'admin123') {
-      const t = 'token-' + Math.random().toString(36).slice(2)
-      localStorage.setItem('admin-token', t)
-      setToken(t)
-      alert('Autenticado (demo)')
-    } else {
-      alert('Password incorrecta (demo usa admin123)')
+  async function login() {
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ password })
+      })
+      if (res.ok) {
+        setIsAuthenticated(true)
+        alert('Autenticado')
+      } else {
+        const body = await res.json()
+        alert(body.error || 'Error autenticando')
+      }
+    } catch (e) {
+      alert('Error de red')
     }
   }
 
+  async function logout() {
+    await fetch('/api/admin/logout', { method: 'POST', credentials: 'include' })
+    setIsAuthenticated(false)
+    alert('Sesión cerrada')
+  }
+
   async function publish() {
-    if (!token) return alert('No autenticado')
+    if (!isAuthenticated) return alert('No autenticado')
     try {
       const payload = JSON.parse(adminJson)
       const res = await fetch('/api/admin/fixture', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(payload)
       })
       if (res.ok) alert('Fixture publicado')
-      else alert('Error al publicar')
+      else {
+        const body = await res.json()
+        alert(body.error || 'Error al publicar')
+      }
     } catch (e) {
-      alert('JSON inválido')
+      alert('JSON inválido o error')
     }
   }
 
   return (
     <Container>
       <Typography variant="h4">Panel Admin</Typography>
-      {!token ? (
+      {!isAuthenticated ? (
         <div style={{marginTop:12}}>
           <TextField label="Password" type="password" value={password} onChange={e => setPassword(e.target.value)} />
           <Button variant="contained" onClick={login} style={{marginLeft:8}}>Login</Button>
         </div>
       ) : (
         <div style={{marginTop:12}}>
-          <Typography>Autenticado (demo) — token guardado localmente</Typography>
+          <Typography>Autenticado</Typography>
+          <Button variant="outlined" onClick={logout} style={{marginTop:8}}>Logout</Button>
           <TextField
             multiline
             minRows={8}
