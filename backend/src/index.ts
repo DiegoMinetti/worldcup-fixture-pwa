@@ -7,6 +7,8 @@ import fs from 'fs'
 import cookieParser from 'cookie-parser'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
+import winston from 'winston'
+import os from 'os'
 
 const app = express()
 app.use(express.json())
@@ -15,19 +17,73 @@ app.use(express.json())
 app.use(cors({ origin: true, credentials: true }))
 app.use(cookieParser())
 
+// Logger (console + file)
+const logDir = path.join(__dirname, '..', '..', 'logs')
+try { fs.mkdirSync(logDir, { recursive: true }) } catch {}
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.json(),
+  defaultMeta: { service: 'wc-fixture' },
+  transports: [
+    new winston.transports.Console({ format: winston.format.simple() }),
+    new winston.transports.File({ filename: path.join(logDir, 'app.log') })
+  ]
+})
+
 // Admin auth setup
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || ''
 let ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || ''
 const JWT_SECRET = process.env.ADMIN_JWT_SECRET || (Math.random().toString(36) + Date.now())
 
-if (!ADMIN_PASSWORD_HASH) {
+// Login attempt tracking: basic in-memory throttling
+const loginAttempts = new Map() // key -> { count, firstAt, lockedUntil }
+const MAX_ATTEMPTS = 5
+const WINDOW_MS = 15 * 60 * 1000 // 15 minutes window
+const LOCK_MS = 15 * 60 * 1000 // lock for 15 minutes
+
+function attemptKey(req: any) {
+  // use IP + maybe username later
+  return req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress || 'unknown'
+}
+
+function recordFailedAttempt(req: any) {
+  const key = attemptKey(req)
+  const now = Date.now()
+  const st = loginAttempts.get(key) || { count: 0, firstAt: now, lockedUntil: 0 }
+  if (now - st.firstAt > WINDOW_MS) {
+    st.count = 1
+    st.firstAt = now
+  } else {
+    st.count += 1
+  }
+  if (st.count >= MAX_ATTEMPTS) {
+    st.lockedUntil = now + LOCK_MS
+  }
+  loginAttempts.set(key, st)
+  return st
+}
+
+function isLocked(req: any) {
+  const key = attemptKey(req)
+  const st = loginAttempts.get(key)
+  if (!st) return false
+  if (st.lockedUntil && Date.now() < st.lockedUntil) return true
+  return false
+}
+
+function resetAttempts(req: any) {
+  const key = attemptKey(req)
+  loginAttempts.delete(key)
+}
+
+  if (!ADMIN_PASSWORD_HASH) {
   if (ADMIN_PASSWORD) {
     // create a hash for runtime if only plain password provided (not ideal for production)
-    console.warn('ADMIN_PASSWORD provided; generating hash at startup. For production use ADMIN_PASSWORD_HASH env var.')
+    logger.warn('ADMIN_PASSWORD provided; generating hash at startup. For production use ADMIN_PASSWORD_HASH env var.')
     ADMIN_PASSWORD_HASH = bcrypt.hashSync(ADMIN_PASSWORD, 10)
   } else {
     // fallback to default weak password (development only)
-    console.warn('No admin password provided. Using default password "admin123" (development only).')
+    logger.warn('No admin password provided. Using default password "admin123" (development only).')
     ADMIN_PASSWORD_HASH = bcrypt.hashSync('admin123', 10)
   }
 }
@@ -66,15 +122,28 @@ app.post('/api/admin/fixture', requireAdmin, (req, res) => {
 
 // Admin login endpoint: POST { password }
 app.post('/api/admin/login', async (req, res) => {
-  const { password } = req.body || {}
-  if (!password) return res.status(400).json({ error: 'missing password' })
-  const ok = await bcrypt.compare(password, ADMIN_PASSWORD_HASH)
-  if (!ok) return res.status(401).json({ error: 'invalid credentials' })
-
-  const token = jwt.sign({ role: 'admin' }, JWT_SECRET, { expiresIn: '8h' })
-  const isProd = process.env.NODE_ENV === 'production'
-  res.cookie('session', token, { httpOnly: true, secure: isProd, sameSite: 'lax', maxAge: 8 * 3600 * 1000 })
-  res.json({ ok: true })
+  try {
+    if (isLocked(req)) return res.status(429).json({ error: 'too many attempts, try later' })
+    const { password } = req.body || {}
+    if (!password) return res.status(400).json({ error: 'missing password' })
+    const ok = await bcrypt.compare(password, ADMIN_PASSWORD_HASH)
+    const ip = attemptKey(req)
+    if (!ok) {
+      const st = recordFailedAttempt(req)
+      logger.warn('Failed admin login attempt', { ip, attempts: st.count })
+      return res.status(401).json({ error: 'invalid credentials' })
+    }
+    // success
+    resetAttempts(req)
+    const token = jwt.sign({ role: 'admin' }, JWT_SECRET, { expiresIn: '8h' })
+    const isProd = process.env.NODE_ENV === 'production'
+    res.cookie('session', token, { httpOnly: true, secure: isProd, sameSite: 'lax', maxAge: 8 * 3600 * 1000 })
+    logger.info('Admin login success', { ip })
+    res.json({ ok: true })
+  } catch (err) {
+    logger.error('Error in admin login', { err: err?.message || err })
+    res.status(500).json({ error: 'internal' })
+  }
 })
 
 app.post('/api/admin/logout', (req, res) => {

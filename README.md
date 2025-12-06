@@ -22,13 +22,30 @@ docker-compose up --build
 ```
 
 Esto levantará dos servicios:
-- `frontend` en el host: `http://localhost:5173` (Vite dev server)
-- `backend` en `http://localhost:4000` (API + WebSocket)
 
 Features añadidos:
-- UI de simulación local (se guarda en `localStorage`).
-- Panel Admin básico para publicar el fixture real (POST a `/api/admin/fixture`).
-- WebSocket en cliente para recibir actualizaciones en tiempo real.
-- Service worker básico para caching offline (`/service-worker.js`).
 
 Siguientes pasos recomendados: compilar frontend para producción y servir archivos estáticos desde backend para un despliegue simple.
+Generar `ADMIN_PASSWORD_HASH` (recomendado)
+1. Para no guardar la contraseña en texto plano en producción, generá un hash con bcrypt y exportalo como variable de entorno `ADMIN_PASSWORD_HASH`.
+
+Desde la carpeta `backend` podés usar el script incluido:
+
+```bash
+cd backend
+npm install
+npm run gen-hash mySuperSecretPassword
+# copia el valor generado y exportalo en tu entorno de despliegue
+# ejemplo (macOS / Linux):
+export ADMIN_PASSWORD_HASH='<hash-aqui>'
+```
+
+Luego arrancá el backend con esa variable definida. Si preferís, podés usar `ADMIN_PASSWORD` en desarrollo y el servidor generará un hash al inicio (no recomendado en prod).
+
+Bloqueo por intentos fallidos y logging
+- El backend implementa un bloqueo básico por IP: después de 5 intentos fallidos en 15 minutos se bloquea por 15 minutos.
+- Los eventos importantes (login fallido/éxitos, publicación de fixture) se registran en `logs/app.log` (archivo creado en el contenedor o en la carpeta del repo cuando se ejecuta localmente).
+
+Mejoras del panel admin
+- El panel `/admin` ahora incluye un editor visual del fixture: podés añadir/quitar equipos, reordenarlos y editar nombre/código.
+- Validaciones básicas aseguran que cada grupo tenga al menos un equipo y que nombre/código no estén vacíos antes de publicar.
