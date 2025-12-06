@@ -1,8 +1,10 @@
 import express from 'express'
 import http from 'http'
 import WebSocket from 'ws'
+import cors from 'cors'
 
 const app = express()
+app.use(cors())
 app.use(express.json())
 
 // Simple in-memory store for fixture state (replace with persistent DB later)

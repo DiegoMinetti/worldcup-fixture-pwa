@@ -4,3 +4,11 @@ export function register() {
     navigator.serviceWorker.register('/service-worker.js').catch(() => {})
   }
 }
+
+export function unregister() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then((regs) => {
+      regs.forEach(r => r.unregister())
+    })
+  }
+}
