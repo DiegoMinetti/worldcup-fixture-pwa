@@ -16,4 +16,15 @@ root.render(
 	</BrowserRouter>
 )
 
-register()
+// In development, ensure any existing service workers and caches are removed
+// to avoid stale assets interfering with HMR. In production register the SW.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+if (import.meta && import.meta.env && import.meta.env.PROD) {
+	register()
+} else {
+	// unregister any existing SWs and clear caches in dev
+	// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+	// @ts-ignore
+	import('./serviceWorkerRegistration').then(mod => mod.unregister()).catch(() => {})
+}

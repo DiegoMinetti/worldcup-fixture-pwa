@@ -16,5 +16,11 @@ export function unregister() {
     navigator.serviceWorker.getRegistrations().then((regs) => {
       regs.forEach(r => r.unregister())
     })
+    // also clear caches to remove any cached assets from previous SWs
+    if ('caches' in window) {
+      caches.keys().then(keys => {
+        return Promise.all(keys.map(k => caches.delete(k)))
+      }).catch(() => {})
+    }
   }
 }
