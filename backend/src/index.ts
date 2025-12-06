@@ -2,6 +2,8 @@ import express from 'express'
 import http from 'http'
 import WebSocket from 'ws'
 import cors from 'cors'
+import path from 'path'
+import fs from 'fs'
 
 const app = express()
 app.use(cors())
@@ -15,6 +17,13 @@ app.get('/api/fixture', (req, res) => {
 })
 
 app.post('/api/admin/fixture', (req, res) => {
+  // require admin token in header 'x-admin-token'
+  const token = req.header('x-admin-token')
+  const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'admin123'
+  if (token !== ADMIN_TOKEN) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+
   fixtureState = req.body
   // broadcast to websocket clients
   wss.clients.forEach((client: any) => {
@@ -24,6 +33,15 @@ app.post('/api/admin/fixture', (req, res) => {
   })
   res.json({ ok: true })
 })
+
+// Serve frontend static files when available (production)
+const frontDist = path.join(__dirname, '..', 'public')
+if (fs.existsSync(frontDist)) {
+  app.use(express.static(frontDist))
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(frontDist, 'index.html'))
+  })
+}
 
 const server = http.createServer(app)
 const wss = new WebSocket.Server({ server })

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Container, Typography, Button, TextField, Stack } from '@mui/material'
 import { sampleGroups } from './data/groups'
+import { saveSimulation, loadSimulation } from './storage/indexeddb'
 
 type Fixture = { groups: any[] }
 
@@ -11,13 +12,10 @@ export default function App() {
   const [adminJson, setAdminJson] = useState('')
 
   useEffect(() => {
-    // load persisted simulation from localStorage
-    const sim = localStorage.getItem('wc-simulation')
-    if (sim) {
-      try {
-        setSimulation(JSON.parse(sim))
-      } catch {}
-    }
+    // load persisted simulation from IndexedDB
+    loadSimulation('default').then(s => {
+      if (s) setSimulation(s)
+    }).catch(() => {})
 
     // open websocket to backend for real fixture updates
     try {
@@ -44,10 +42,10 @@ export default function App() {
       .catch(() => {})
   }, [])
 
-  function saveSimulation() {
+  async function saveSimulationLocal() {
     if (simulation) {
-      localStorage.setItem('wc-simulation', JSON.stringify(simulation))
-      alert('Simulación guardada localmente')
+      await saveSimulation('default', simulation)
+      alert('Simulación guardada en IndexedDB')
     }
   }
 
@@ -90,7 +88,7 @@ export default function App() {
           {isAdminVisible ? 'Ocultar Admin' : 'Mostrar Admin'}
         </Button>
         <Button variant="outlined" onClick={randomizeSimulation}>Randomizar Simulación</Button>
-        <Button variant="contained" onClick={saveSimulation}>Guardar Simulación (local)</Button>
+        <Button variant="contained" onClick={saveSimulationLocal}>Guardar Simulación (local)</Button>
       </Stack>
 
       {isAdminVisible && (
